@@ -1,10 +1,6 @@
 import numpy as np
-import os
-import sys
 import tensorflow as tf
-
-from tensorflow.contrib import rnn
-
+from tensorflow.keras import layers
 from model import Model
 from utils.language_utils import letter_to_vec, word_to_indices
 
@@ -16,26 +12,25 @@ class ClientModel(Model):
         super(ClientModel, self).__init__(seed, lr)
 
     def create_model(self):
-        features = tf.placeholder(tf.int32, [None, self.seq_len])
-        embedding = tf.get_variable("embedding", [self.num_classes, 8])
-        x = tf.nn.embedding_lookup(embedding, features)
-        labels = tf.placeholder(tf.int32, [None, self.num_classes])
+        # Define the input layer
+        features = tf.keras.Input(shape=(self.seq_len,), dtype=tf.int32)
+        embedding = layers.Embedding(input_dim=self.num_classes, output_dim=8)(features)
         
-        stacked_lstm = rnn.MultiRNNCell(
-            [rnn.BasicLSTMCell(self.n_hidden) for _ in range(2)])
-        outputs, _ = tf.nn.dynamic_rnn(stacked_lstm, x, dtype=tf.float32)
-        pred = tf.layers.dense(inputs=outputs[:,-1,:], units=self.num_classes)
+        # Define the LSTM layers using Keras
+        lstm_layer = layers.RNN([layers.LSTMCell(self.n_hidden) for _ in range(2)], return_sequences=False)(embedding)
         
-        loss = tf.reduce_mean(
-            tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=labels))
-        train_op = self.optimizer.minimize(
-            loss=loss,
-            global_step=tf.train.get_global_step())
+        # Define the dense layer using Keras
+        pred = layers.Dense(units=self.num_classes)(lstm_layer)
 
-        correct_pred = tf.equal(tf.argmax(pred, 1), tf.argmax(labels, 1))
-        eval_metric_ops = tf.count_nonzero(correct_pred)
+        # Define the model
+        model = tf.keras.Model(inputs=features, outputs=pred)
 
-        return features, labels, train_op, eval_metric_ops, loss
+        # Compile the model
+        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.lr),
+                      loss=tf.keras.losses.CategoricalCrossentropy(from_logits=True),
+                      metrics=[tf.keras.metrics.CategoricalAccuracy()])
+
+        return model
 
     def process_x(self, raw_x_batch):
         x_batch = [word_to_indices(word) for word in raw_x_batch]
@@ -44,4 +39,5 @@ class ClientModel(Model):
 
     def process_y(self, raw_y_batch):
         y_batch = [letter_to_vec(c) for c in raw_y_batch]
+        y_batch = np.array(y_batch)
         return y_batch

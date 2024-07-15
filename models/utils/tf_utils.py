@@ -30,7 +30,7 @@ def graph_size(graph):
     '''
     tot_size = 0
     with graph.as_default():
-        vs = tf.trainable_variables()
+        vs = tf.compat.v1.trainable_variables()
         for v in vs:
             tot_elems = __num_elems(v.shape)
             dtype_size = int(v.dtype.size)
