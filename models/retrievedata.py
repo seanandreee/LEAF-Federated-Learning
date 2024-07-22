@@ -1,17 +1,19 @@
 import json
 import os
 import sys
-import numpy as np
-# import tensorflow as tf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Tuple
-import logging
-import matplotlib.pyplot as plt
 import torch.optim as optim
 import torchtext; torchtext.disable_torchtext_deprecation_warning()
 from torch.utils.data import Dataset, DataLoader
+from torchtext.data.utils import get_tokenizer
+import string
+from collections import defaultdict
+from utils.language_utils import letter_to_vec, word_to_indices
+from torchtext.vocab import build_vocab_from_iterator
+import numpy as np
+
 seed = 42
 torch.manual_seed(seed)
 np.random.seed(seed)
@@ -28,54 +30,86 @@ TRAINING_FILE_PATH = os.path.join('data', 'shakespeare', 'data', 'train', 'all_d
 TEST_FILE_PATH = os.path.join('data', 'shakespeare', 'data', 'test', 'all_data_niid_0_keep_0_test_9.json')
 
 
-
-#device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#device
-
-def load_data():
-    datasets = []
-    with open(TRAINING_FILE_PATH, 'r') as train_f:
-        train_data = json.load(train_f)
-    with open(TEST_FILE_PATH, 'r') as test_f:
-        test_data = json.load(test_f)
-
-    train_data['users'].sort()
-    test_data['users'].sort()
-    assert train_data['users'] == test_data['users'], \
-        f"Training and testing data users do not match.\n" + \
-        f"Train users: {train_data['users']}\nTest users: {test_data['users']}"
+def load_and_preprocess(file_path):
+    def preprocess_data(text):
+        # Convert to lowercase
+        text = text.lower()
+        printable = set(string.printable)
+        text = ''.join(filter(lambda x: x in printable, text))
+        
+        return text
     
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+    
+    preprocessed_data = {'users': [], 'user_data': {}}
+    
+    for user in data['users']:
+        preprocessed_data['users'].append(user)
+        preprocessed_data['user_data'][user] = {'x': [], 'y': []}
+        
+        # Preprocess each piece of text data
+        for text in data['user_data'][user]['x']:
+            preprocessed_text = preprocess_data(text)
+            preprocessed_data['user_data'][user]['x'].append(preprocessed_text)
+        
+        for text in data['user_data'][user]['y']:
+            preprocessed_text = preprocess_data(text)
+            preprocessed_data['user_data'][user]['y'].append(preprocessed_text)
+    
+    return preprocessed_data
 
-    all_train_x = []
-    all_train_y = []
-    all_test_x = []
-    all_test_y = []
+# Load and preprocess the training and test data
+preprocessed_train_data = load_and_preprocess(TRAINING_FILE_PATH)
+preprocessed_test_data = load_and_preprocess(TEST_FILE_PATH)
 
-    for user in train_data['users']:
-        train_x = train_data['user_data'][user]['x']
-        train_y = train_data['user_data'][user]['y']
-        test_x = test_data['user_data'][user]['x']
-        test_y = test_data['user_data'][user]['y']
+'''# Print the preprocessed training data
+print("Preprocessed Training Data:")
+print(json.dumps(preprocessed_train_data, indent=4))
 
-        all_train_x.extend(train_x)
-        all_train_y.extend(train_y)
-        all_test_x.extend(test_x)
-        all_test_y.extend(test_y)
+# Print the preprocessed test data
+print("Preprocessed Test Data:")
+print(json.dumps(preprocessed_test_data, indent=4))
 
-    # Convert lists to numpy arrays
-    all_train_x = np.array(all_train_x, dtype=np.int64)
-    all_train_y = np.array(all_train_y, dtype=np.int64)
-    all_test_x = np.array(all_test_x, dtype=np.int64)
-    all_test_y = np.array(all_test_y, dtype=np.int64)
+'''
+#TOKENIZE DATA
+def tokenize_data(data):
+    def tokenize(text):
+        return list(text) 
 
-    # Create PyTorch datasets
-    train_dataset = torch.utils.data.TensorDataset(torch.tensor(train_x).to(torch.device("mps")), torch.tensor(train_y).to(torch.device("mps")))
-    test_dataset = torch.utils.data.TensorDataset(torch.tensor(test_x).to(torch.device("mps")), torch.tensor(test_y).to(torch.device("mps")))
+    def yield_tokens(data):
+        for user in data['users']:
+            for text in data['user_data'][user]['x']:
+                yield tokenize(text)
+            for text in data['user_data'][user]['y']:
+                yield tokenize(text)
+    
+    # Build vocabulary from the tokenized data
+    vocab = build_vocab_from_iterator(yield_tokens(data), specials=["<pad>", "<unk>"])
+    vocab.set_default_index(vocab["<unk>"])
+    
+    tokenized_data = {'users': [], 'user_data': {}}
+    
+    for user in data['users']:
+        tokenized_data['users'].append(user)
+        tokenized_data['user_data'][user] = {'x': [], 'y': []}
+        
+        # Tokenize each piece of text data
+        for text in data['user_data'][user]['x']:
+            tokenized_text = [vocab[token] for token in tokenize(text)]
+            tokenized_data['user_data'][user]['x'].append(tokenized_text)
+        
+        for text in data['user_data'][user]['y']:
+            tokenized_text = [vocab[token] for token in tokenize(text)]
+            tokenized_data['user_data'][user]['y'].append(tokenized_text)
+    
+    return tokenized_data, vocab
 
-    # Create DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=4, shuffle=True)
 
-    return train_loader, test_loader, datasets
+'''
+To-do:
+Create sequences
+pad sequences
+create dataloaders + datasets
 
-load_data()
+'''
