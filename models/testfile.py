@@ -15,9 +15,6 @@ from torchtext.vocab import build_vocab_from_iterator
 import numpy as np
 from torch.nn.functional import one_hot
 from utils.language_utils import letter_to_vec, word_to_indices
-from torch.utils.data import RandomSampler
-
-
 print('starting script')
 
 seed = 42
@@ -28,22 +25,31 @@ TRAINING_FILE_PATH = os.path.join('data', 'shakespeare', 'data', 'train', 'all_d
 TEST_FILE_PATH = os.path.join('data', 'shakespeare', 'data', 'test', 'all_data_niid_0_keep_0_test_9.json')
 print('file path confirmed')
 
+
+'''
+def load_data(file_path):
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+    return data
+
+# Load training and test data
+training_data = load_data(TRAINING_FILE_PATH)
+test_data = load_data(TEST_FILE_PATH)
+
+print(len(test_data))
+print(len(training_data))
+
+'''
 #limit data usage
-
-'''
-print(len(TRAINING_FILE_PATH))
-print(len(TEST_FILE_PATH))
-'''
-
-#vocab
-ALL_LETTERS = "\n !\"&'(),-.0123456789:;>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[]abcdefghijklmnopqrstuvwxyz}"
-NUM_LETTERS = len(ALL_LETTERS)
-
-# Create a vocabulary dictionary
-vocab = {char: idx for idx, char in enumerate(ALL_LETTERS)}
-
-#Retrieve preprocessed data
 def load_and_preprocess(file_path):
+    def preprocess_data(text):
+        # Convert to lowercase
+        text = text.lower()
+        printable = set(string.printable)
+        text = ''.join(filter(lambda x: x in printable, text))
+        
+        return text
+    
     with open(file_path, 'r') as f:
         data = json.load(f)
     
@@ -53,17 +59,38 @@ def load_and_preprocess(file_path):
         preprocessed_data['users'].append(user)
         preprocessed_data['user_data'][user] = {'x': [], 'y': []}
         
-        # Directly use the preprocessed text data
+        # Preprocess each piece of text data
         for text in data['user_data'][user]['x']:
-            preprocessed_data['user_data'][user]['x'].append(text)
+            preprocessed_text = preprocess_data(text)
+            preprocessed_data['user_data'][user]['x'].append(preprocessed_text)
         
         for text in data['user_data'][user]['y']:
-            preprocessed_data['user_data'][user]['y'].append(text)
+            preprocessed_text = preprocess_data(text)
+            preprocessed_data['user_data'][user]['y'].append(preprocessed_text)
+
     
     return preprocessed_data
 
+print(len(TRAINING_FILE_PATH))
+print(len(TEST_FILE_PATH))
+
+
 #TOKENIZE DATA
 def tokenize_data(data):
+    def tokenize(text):
+        return list(text) 
+
+    def yield_tokens(data):
+        for user in data['users']:
+            for text in data['user_data'][user]['x']:
+                yield tokenize(text)
+            for text in data['user_data'][user]['y']:
+                yield tokenize(text)
+    
+    # Build vocabulary from the tokenized data
+    vocab = build_vocab_from_iterator(yield_tokens(data), specials=["<pad>", "<unk>"])
+    vocab.set_default_index(vocab["<unk>"])
+    
     tokenized_data = {'users': [], 'user_data': {}}
     
     for user in data['users']:
@@ -72,33 +99,33 @@ def tokenize_data(data):
         
         # Tokenize each piece of text data
         for text in data['user_data'][user]['x']:
-            tokenized_text = word_to_indices(text)
+            tokenized_text = [vocab[token] for token in tokenize(text)]
             tokenized_data['user_data'][user]['x'].append(tokenized_text)
         
         for text in data['user_data'][user]['y']:
-            tokenized_text = word_to_indices(text)
+            tokenized_text = [vocab[token] for token in tokenize(text)]
             tokenized_data['user_data'][user]['y'].append(tokenized_text)
     
-    return tokenized_data
-
+    return tokenized_data, vocab
 print('function pass')
 #Load and preprocess data - Tokenize data
 # Load and preprocess the training and test data
 preprocessed_train_data = load_and_preprocess(TRAINING_FILE_PATH)
 preprocessed_test_data = load_and_preprocess(TEST_FILE_PATH)
+
+print(type(preprocessed_test_data))
+print(type(preprocessed_train_data))
 print(f"Number of users in preprocessed training data: {len(preprocessed_train_data['users'])}")
 print(f"Number of users in preprocessed test data: {len(preprocessed_test_data['users'])}")
 
 print('data preprocessed')
 # Tokenize the preprocessed data and build vocabulary
-tokenized_train_data = tokenize_data(preprocessed_train_data)
-tokenized_test_data = tokenize_data(preprocessed_test_data)
-print(type(tokenized_train_data))
-print(type(tokenized_test_data))
-print(type(vocab))
-print(f"Vocabulary size: {(vocab)}")
+tokenized_train_data, vocab = tokenize_data(preprocessed_train_data)
+tokenized_test_data, _ = tokenize_data(preprocessed_test_data)
+print(f"Vocabulary size: {len(vocab)}")
 print(f"Example tokenized data (training): {tokenized_train_data['user_data'][tokenized_train_data['users'][0]]['x'][:3]}")
-
+print(type(tokenized_test_data))
+print(type(tokenized_train_data))
 print('data tokenized')
 
 #debugging statement below
@@ -124,12 +151,10 @@ def create_sequences_and_targets(tokenized_data, seq_length=3, max_users = 2):
                 targets.append(target)
     
     return sequences, targets
-import time
 
-def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_dim=128, hidden_dim=256, lr=0.001):
+def train_and_evaluate_model(epochs=50, seq_length=10, batch_size=32, embedding_dim=128, hidden_dim=256, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
+    device
     # Load and preprocess the training and test data
     preprocessed_train_data = load_and_preprocess(TRAINING_FILE_PATH)
     preprocessed_test_data = load_and_preprocess(TEST_FILE_PATH)
@@ -137,9 +162,9 @@ def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_d
     print(f"Number of users in preprocessed test data: {len(preprocessed_test_data['users'])}")
 
     # Tokenize the preprocessed data and build vocabulary
-    tokenized_train_data = tokenize_data(preprocessed_train_data)
-    tokenized_test_data = tokenize_data(preprocessed_test_data)
-    print(f"Vocabulary size: {len(tokenized_train_data['user_data'][tokenized_train_data['users'][0]]['x'])}")
+    tokenized_train_data, vocab = tokenize_data(preprocessed_train_data)
+    tokenized_test_data, _ = tokenize_data(preprocessed_test_data)
+    print(f"Vocabulary size: {len(vocab)}")
     print(f"Example tokenized data (training): {tokenized_train_data['user_data'][tokenized_train_data['users'][0]]['x'][:3]}")
 
     # Create sequences and targets
@@ -159,15 +184,11 @@ def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_d
     # Create TensorDatasets
     train_dataset = TensorDataset(train_sequences_tensor, train_targets_tensor)
     test_dataset = TensorDataset(test_sequences_tensor, test_targets_tensor)
-    sampler = RandomSampler(train_dataset, replacement=True, num_samples=int(0.2 * len(train_dataset)))
 
     # Create DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler = sampler, shuffle=True, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, sampler = sampler, shuffle=True, num_workers=4)
-    print(type(train_loader))
-    print(type(test_loader))
-    print(len(train_loader))
-    print(len(test_loader))
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+
     # Define LSTM
     class My_LSTM(nn.Module):
         def __init__(self, input_dim, output_dim, embedding_dim, hidden_dim):
@@ -186,8 +207,8 @@ def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_d
             return output
 
     # Instantiate the model
-    input_dim = len(tokenized_train_data['user_data'][tokenized_train_data['users'][0]]['x'][0])
-    output_dim = len(tokenized_train_data['user_data'][tokenized_train_data['users'][0]]['x'][0])
+    input_dim = len(vocab)
+    output_dim = len(vocab)
     model = My_LSTM(input_dim, output_dim, embedding_dim, hidden_dim).to(device)
     print("Model instantiated successfully.")
 
@@ -214,17 +235,12 @@ def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_d
         accuracy = correct_predictions / total_predictions
         return accuracy
 
-    print('accuracy test pass')
     all_accuracies = []
     all_losses = []
 
     for epoch in range(epochs):   
-        print('beginning training')
         model.train()
-        print('pass 1')
         epoch_loss = 0
-        start_time = time.time()
-        print('pass 2')
         for batch_X, batch_y in train_loader:
             batch_X, batch_y = batch_X.to(device), batch_y.to(device)
             optimizer.zero_grad()
@@ -234,18 +250,15 @@ def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_d
             optimizer.step()
             epoch_loss += loss.item()
 
-        
-        print('function pass')
-
         epoch_loss /= len(train_loader)
         all_losses.append(epoch_loss)
-        accuracy = calculate_topk_accuracy(model, train_loader)
-        print('accuracy confirmed')
-        epoch_time = time.time() - start_time
-        print(f'Epoch {epoch}/{epochs}, Loss: {epoch_loss:.4f}, Train K-Accuracy: {accuracy * 100:.2f}%, Time: {epoch_time:.2f}s')
-        all_accuracies.append(accuracy)
 
-    # Test eval
+        if epoch % 5 == 0:
+            accuracy = calculate_topk_accuracy(model, train_loader)
+            print(f'Epoch {epoch}/{epochs}, Loss: {epoch_loss:.4f}, Train K-Accuracy: {accuracy * 100:.2f}%')
+            all_accuracies.append(accuracy)
+
+    # test eval
     accuracy = calculate_topk_accuracy(model, test_loader)
     print(f'Test K-Accuracy: {accuracy * 100:.2f}%')
 
