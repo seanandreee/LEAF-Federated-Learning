@@ -10,22 +10,37 @@ from torch.utils.data import Dataset, DataLoader, TensorDataset
 from torchtext.data.utils import get_tokenizer
 import string
 from collections import defaultdict
-from utils.language_utils import letter_to_vec, word_to_indices
 from torchtext.vocab import build_vocab_from_iterator
 import numpy as np
 from torch.nn.functional import one_hot
-from utils.language_utils import letter_to_vec, word_to_indices
 from torch.utils.data import RandomSampler
+import time
 
 
 print('starting script')
+
+
+def word_to_indices(word):
+    '''returns a list of character indices
+
+    Args:
+        word: string
+
+    Return:
+        indices: int list with length len(word)
+    '''
+    indices = []
+    for c in word:
+        indices.append(ALL_LETTERS.find(c))
+    return indices
 
 seed = 42
 torch.manual_seed(seed)
 np.random.seed(seed)
 
-TRAINING_FILE_PATH = os.path.join('data', 'shakespeare', 'data', 'train', 'all_data_niid_0_keep_0_train_9.json')
-TEST_FILE_PATH = os.path.join('data', 'shakespeare', 'data', 'test', 'all_data_niid_0_keep_0_test_9.json')
+TRAINING_FILE_PATH = '/content/all_data_niid_0_keep_0_train_9.json'
+TEST_FILE_PATH = '/content/all_data_niid_0_keep_0_test_9.json'
+
 print('file path confirmed')
 
 #limit data usage
@@ -46,45 +61,45 @@ vocab = {char: idx for idx, char in enumerate(ALL_LETTERS)}
 def load_and_preprocess(file_path):
     with open(file_path, 'r') as f:
         data = json.load(f)
-    
+
     preprocessed_data = {'users': [], 'user_data': {}}
-    
+
     for user in data['users']:
         preprocessed_data['users'].append(user)
         preprocessed_data['user_data'][user] = {'x': [], 'y': []}
-        
+
         # Directly use the preprocessed text data
         for text in data['user_data'][user]['x']:
             preprocessed_data['user_data'][user]['x'].append(text)
-        
+
         for text in data['user_data'][user]['y']:
             preprocessed_data['user_data'][user]['y'].append(text)
-    
+
     return preprocessed_data
 
 #TOKENIZE DATA
 def tokenize_data(data):
     tokenized_data = {'users': [], 'user_data': {}}
-    
+
     for user in data['users']:
         tokenized_data['users'].append(user)
         tokenized_data['user_data'][user] = {'x': [], 'y': []}
-        
+
         # Tokenize each piece of text data
         for text in data['user_data'][user]['x']:
             tokenized_text = word_to_indices(text)
             tokenized_data['user_data'][user]['x'].append(tokenized_text)
-        
+
         for text in data['user_data'][user]['y']:
             tokenized_text = word_to_indices(text)
             tokenized_data['user_data'][user]['y'].append(tokenized_text)
-    
+
     return tokenized_data
 
 print('function pass')
 #Load and preprocess data - Tokenize data
 # Load and preprocess the training and test data
-preprocessed_train_data = load_and_preprocess(TRAINING_FILE_PATH)
+'''preprocessed_train_data = load_and_preprocess(TRAINING_FILE_PATH)
 preprocessed_test_data = load_and_preprocess(TEST_FILE_PATH)
 print(f"Number of users in preprocessed training data: {len(preprocessed_train_data['users'])}")
 print(f"Number of users in preprocessed test data: {len(preprocessed_test_data['users'])}")
@@ -99,7 +114,7 @@ print(type(vocab))
 print(f"Vocabulary size: {(vocab)}")
 print(f"Example tokenized data (training): {tokenized_train_data['user_data'][tokenized_train_data['users'][0]]['x'][:3]}")
 
-print('data tokenized')
+print('data tokenized')'''
 
 #debugging statement below
 '''for user in tokenized_train_data['users'][:5]:
@@ -122,11 +137,10 @@ def create_sequences_and_targets(tokenized_data, seq_length=3, max_users = 2):
                 target = text[i]
                 sequences.append(seq)
                 targets.append(target)
-    
-    return sequences, targets
-import time
 
-def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_dim=128, hidden_dim=256, lr=0.001):
+    return sequences, targets
+
+def train_and_evaluate_model(epochs=10, seq_length=20, batch_size=32, embedding_dim=64, hidden_dim=128, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -162,12 +176,9 @@ def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_d
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=int(0.2 * len(train_dataset)))
 
     # Create DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler = sampler, shuffle=True, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, sampler = sampler, shuffle=True, num_workers=4)
-    print(type(train_loader))
-    print(type(test_loader))
-    print(len(train_loader))
-    print(len(test_loader))
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler = sampler, num_workers=4, pin_memory = True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, sampler = sampler, num_workers=4, pin_memory = True)
+
     # Define LSTM
     class My_LSTM(nn.Module):
         def __init__(self, input_dim, output_dim, embedding_dim, hidden_dim):
@@ -218,7 +229,7 @@ def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_d
     all_accuracies = []
     all_losses = []
 
-    for epoch in range(epochs):   
+    for epoch in range(epochs):
         print('beginning training')
         model.train()
         print('pass 1')
@@ -234,7 +245,7 @@ def train_and_evaluate_model(epochs=10, seq_length=10, batch_size=1, embedding_d
             optimizer.step()
             epoch_loss += loss.item()
 
-        
+
         print('function pass')
 
         epoch_loss /= len(train_loader)
